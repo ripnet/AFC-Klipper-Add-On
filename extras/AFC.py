@@ -511,15 +511,17 @@ class afc:
             gcmd: The G-code command object containing the parameters for the command.
                   Expected parameter:
                   - LANE: The name of the lane to be loaded.
+                  - PURGE_LENGTH: The amount of filament to poop (optional).
 
         Returns:
             None
         """
         lane = gcmd.get('LANE', None)
+        purge_length = gcmd.get('PURGE_LENGTH', None)
         CUR_LANE = self.printer.lookup_object('AFC_stepper ' + lane)
-        self.TOOL_LOAD(CUR_LANE)
+        self.TOOL_LOAD(CUR_LANE, purge_length)
 
-    def TOOL_LOAD(self, CUR_LANE):
+    def TOOL_LOAD(self, CUR_LANE, purge_length=None):
         """
         This function handles the loading of a specified lane into the tool. It performs
         several checks and movements to ensure the lane is properly loaded.
@@ -529,6 +531,7 @@ class afc:
 
         Args:
             CUR_LANE: The lane object to be loaded into the tool.
+            purge_length: Amount of filament to poop (optional).
 
         Returns:
             bool: True if load was successful, False if an error occurred.
@@ -644,7 +647,10 @@ class afc:
             # Activate the tool-loaded LED and handle filament operations if enabled.
             self.afc_led(self.led_tool_loaded, CUR_LANE.led_index)
             if self.poop:
-                self.gcode.run_script_from_command(self.poop_cmd)
+                if purge_length is not None:
+                    self.gcode.run_script_from_command("%s %s=%s" % (self.poop_cmd, 'PURGE_LENGTH', purge_length))
+                else:
+                    self.gcode.run_script_from_command(self.poop_cmd)
                 if self.wipe:
                     self.gcode.run_script_from_command(self.wipe_cmd)
             if self.kick:
@@ -880,6 +886,7 @@ class afc:
             gcmd: The G-code command object containing the parameters for the command.
                   Expected parameter:
                   - LANE: The name of the lane to be loaded.
+                  - PURGE_LENGTH: The amount of filament to poop (optional).
 
         Returns:
             None
@@ -888,19 +895,30 @@ class afc:
             self.ERROR.AFC_error("Please home printer before doing a toolchange", False)
             return
 
+        purge_length = gcmd.get('PURGE_LENGTH', None)
+
+        # Klipper macros that start with a single letter (ie T0) parse the parameter values with the equals sign
+        # for some sort of backwards compatibility, so for example: T0 PURGE_LENGTH=200, the purge_length would be
+        # equal to "=200". So run this check to remove it:
+        if purge_length is not None:
+            if purge_length.startswith('='):
+                purge_length = purge_length[1:]
+
+        command_line = gcmd.get_commandline()
+        command = command_line.split(' ')[0].upper()
         tmp = gcmd.get_commandline()
+
         cmd = tmp.upper()
         Tcmd = ''
-        if 'LANE' in cmd:
+        if command == "CHANGE_TOOL":
             lane = gcmd.get('LANE', None)
             for key in self.tool_cmds.keys():
                 if self.tool_cmds[key].upper() == lane.upper():
                     Tcmd = key
                     break
+        elif command[:1] == 'T':
+            Tcmd = command
         else:
-            Tcmd = cmd
-
-        if Tcmd == '':
             self.gcode.respond_info("I did not understand the change -- " +cmd)
             return
 
@@ -942,7 +960,7 @@ class afc:
                 CUR_LANE = self.printer.lookup_object('AFC_stepper ' + lane)
 
             # Load the new lane and restore the toolhead position if successful.
-            if self.TOOL_LOAD(CUR_LANE) and not self.error_state:
+            if self.TOOL_LOAD(CUR_LANE, purge_length) and not self.error_state:
                 self.gcode.respond_info("{} is now loaded in toolhead".format(lane))
                 self.restore_pos()
                 self.in_toolchange = False

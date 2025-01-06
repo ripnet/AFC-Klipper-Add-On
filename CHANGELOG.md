@@ -301,3 +301,8 @@ file as the code now generates them automatically.
   Allows to update tip forming configuration at runtime.
 
   See command_reference doc for more info
+
+## [2025-01-06]
+
+### Added
+- Added ability to send `PURGE_LENGTH=x` when using the `T<n>` commands. This gets passed to the poop macro.
